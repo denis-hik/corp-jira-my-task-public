@@ -2,6 +2,10 @@
 
 Нативный плагин WebStorm для корпоративной Jira Server / Data Center.
 
+## Превью
+
+<a href="docs/images/connection.png"><img src="docs/images/connection.png" alt="Подключение к Jira по PAT" width="420"></a>
+
 ## Возможности
 
 - Задачи по JQL, переключаемые фильтры и хранилище именованных запросов.
