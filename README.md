@@ -17,11 +17,11 @@
 
 Скачайте ZIP из [последнего релиза](https://github.com/denis-hik/corp-jira-my-task-public/releases/latest). В WebStorm откройте Settings → Plugins → меню шестерёнки → Install Plugin from Disk и выберите ZIP. Перезапустите IDE, если она предложит это.
 
-Поддерживаемая серия WebStorm: 262.*. Задайте адрес Jira и PAT в окне входа. Секрет хранится через Password Safe IDE, в репозитории токенов нет.
+Поддерживаемые версии WebStorm: 2025.3, 2026.1 и 2026.2 (сборки 253–262.*). Задайте адрес Jira и PAT в окне входа. Секрет хранится через Password Safe IDE, в репозитории токенов нет.
 
 ## Сборка
 
-Требуются Python 3 и установленный WebStorm с JBR javac и SDK-библиотеками. По умолчанию используется `/Applications/WebStorm.app/Contents`; для другого пути задайте `WEBSTORM_HOME`.
+Требуются Python 3 и установленный WebStorm с JBR javac и SDK-библиотеками. По умолчанию используется `/Applications/WebStorm.app/Contents`; для другого пути задайте `WEBSTORM_HOME`. Для релизов с поддержкой 2025.3 используйте SDK WebStorm 2025.3 и проверяйте готовый ZIP на всех заявленных ветках через JetBrains Plugin Verifier.
 
 ```sh
 python3 build.py
