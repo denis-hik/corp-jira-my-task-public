@@ -1,0 +1,15 @@
+/build/
+/dist/
+.idea/
+*.iml
+.DS_Store
+__pycache__/
+*.pyc
+.env
+.env.*
+*.log
+*.pem
+*.key
+*.p12
+*.pfx
+/obfuscation-map.tsv

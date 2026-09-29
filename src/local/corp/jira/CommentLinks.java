@@ -1,0 +1,16 @@
+package local.corp.jira;
+import com.intellij.ide.BrowserUtil;import com.intellij.openapi.project.Project;import com.intellij.ui.JBColor;
+import git4idea.GitUtil;import git4idea.commands.Git;import git4idea.repo.GitRepository;
+import com.intellij.vcs.log.Hash;import com.intellij.vcs.log.impl.VcsLogNavigationUtil;
+import javax.swing.*;import javax.swing.text.*;import java.awt.*;import java.awt.event.*;import java.net.URI;import java.util.*;import java.util.List;import java.util.regex.*;
+final class CommentLinks {
+ static final Pattern URL=Pattern.compile("https?://[^\\s<>\\\"\\[\\]]+");
+ static List<String> urls(String text){List<String> all=new ArrayList<>();Matcher m=URL.matcher(text);while(m.find()){String s=m.group().replaceAll("[.,;!?)]+$","");if(!all.contains(s))all.add(s);}return all;}
+ static JTextPane text(String text){JTextPane pane=new JTextPane();pane.setText(text);pane.setEditable(false);pane.setOpaque(false);pane.setBorder(BorderFactory.createEmptyBorder(5,0,8,0));pane.setFont(UIManager.getFont("Label.font").deriveFont(14f));StyledDocument doc=pane.getStyledDocument();for(String url:urls(text)){SimpleAttributeSet attr=new SimpleAttributeSet();StyleConstants.setForeground(attr,new JBColor(new Color(0x0759B8),new Color(0x85B8FF)));StyleConstants.setUnderline(attr,true);attr.addAttribute("url",url);int at=0;while((at=text.indexOf(url,at))>=0){doc.setCharacterAttributes(at,url.length(),attr,false);at+=url.length();}}
+ pane.addMouseListener(new MouseAdapter(){public void mouseClicked(MouseEvent e){if(e.getButton()!=MouseEvent.BUTTON1||pane.getSelectedText()!=null)return;int pos=pane.viewToModel2D(e.getPoint());if(pos>=0){Object url=doc.getCharacterElement(pos).getAttributes().getAttribute("url");if(url instanceof String s)BrowserUtil.browse(s);}}});return pane;}
+ record Commit(GitRepository repo,Hash hash){}
+ static String[] commit(String url,String configured){if(configured.isBlank())return null;try{URI u=URI.create(url),host=URI.create(configured);if(!Objects.equals(u.getHost(),host.getHost())||u.getPort()!=host.getPort())return null;Matcher m=Pattern.compile("^/(.+?)/(?:-/)?commit/([a-fA-F0-9]{7,40})/?$").matcher(u.getPath());return m.matches()?new String[]{m.group(1),m.group(2)}:null;}catch(Exception e){return null;}}
+ static String remotePath(String remote,String host){try{String normalized=remote.matches("^[^/]+@[^:]+:.*")?"ssh://"+remote.replaceFirst(":","/"):remote;URI u=URI.create(normalized);if(!Objects.equals(u.getHost(),URI.create(host).getHost()))return "";return u.getPath().replaceFirst("^/","").replaceFirst("\\.git$","").replaceAll("/+$","");}catch(Exception e){return "";}}
+ static Commit find(Project project,String url,String host){String[] c=commit(url,host);if(c==null)return null;for(GitRepository repo:GitUtil.getRepositories(project)){boolean matches=repo.getRemotes().stream().flatMap(r->r.getUrls().stream()).anyMatch(r->remotePath(r,host).equals(c[0]));if(matches){Hash hash=Git.getInstance().resolveReference(repo,c[1]+"^{commit}");if(hash!=null)return new Commit(repo,hash);}}return null;}
+ static void open(Project project,Commit commit){VcsLogNavigationUtil.jumpToRevisionAsync(project,commit.repo().getRoot(),commit.hash(),null);}
+}

@@ -1,0 +1,14 @@
+<idea-plugin>
+  <id>local.corp.jira.myTasks</id>
+  <name>Corp Jira - My task</name>
+  <version>2.23.4</version>
+  <vendor url="https://denishik.io/">@denis_hik</vendor>
+  <description><![CDATA[Нативная REST API панель: ваши задачи Jira, описание, комментарии и маршруты статусов. Подключение по PAT.]]></description>
+  <idea-version since-build="262" until-build="262.*"/>
+  <depends>com.intellij.modules.platform</depends>
+  <depends>Git4Idea</depends>
+  <extensions defaultExtensionNs="com.intellij">
+    <projectConfigurable id="local.corp.jira.settings" displayName="Corp Jira - My task" instance="local.corp.jira.JiraSettings"/>
+    <toolWindow id="Мои задачи Jira" anchor="bottom" icon="/icons/jiraTasks.svg" factoryClass="local.corp.jira.JiraToolWindowFactory"/>
+  </extensions>
+</idea-plugin>
