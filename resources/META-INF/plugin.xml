@@ -1,7 +1,7 @@
 <idea-plugin>
   <id>local.corp.jira.myTasks</id>
   <name>Corp Jira - My task</name>
-  <version>2.24.0</version>
+  <version>2.24.2</version>
   <vendor url="https://denishik.io/">@denis_hik</vendor>
   <description><![CDATA[Native Jira Server / Data Center task panel for WebStorm. Browse assigned issues, descriptions, comments and attachments; manage statuses using a Personal Access Token.]]></description>
   <idea-version since-build="253" until-build="262.*"/>

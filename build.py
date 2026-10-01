@@ -21,5 +21,5 @@ with zipfile.ZipFile(jar,'w',zipfile.ZIP_DEFLATED) as z:
   for p in folder.rglob('*'):
    if p.is_file():z.write(p,str(p.relative_to(folder)))
 (root/'dist').mkdir(exist_ok=True)
-with zipfile.ZipFile(root/'dist/corp-jira-my-task-2.24.0.zip','w',zipfile.ZIP_DEFLATED) as z:z.write(jar,'corp-jira-my-tasks/lib/'+jar.name)
-print('Plugin built:',root/'dist/corp-jira-my-task-2.24.0.zip')
+with zipfile.ZipFile(root/'dist/corp-jira-my-task-2.24.2.zip','w',zipfile.ZIP_DEFLATED) as z:z.write(jar,'corp-jira-my-tasks/lib/'+jar.name)
+print('Plugin built:',root/'dist/corp-jira-my-task-2.24.2.zip')

@@ -50,6 +50,10 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
     public boolean getScrollableTracksViewportWidth(){return true;}
     public boolean getScrollableTracksViewportHeight(){return false;}
   }
+  static final class IssueIdIcon implements Icon {
+    public int getIconWidth(){return 18;}public int getIconHeight(){return 18;}
+    public void paintIcon(Component c,Graphics graphics,int x,int y){Graphics2D g=(Graphics2D)graphics.create();g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,RenderingHints.VALUE_TEXT_ANTIALIAS_ON);g.setColor(c.getForeground());g.setFont(UIManager.getFont("Label.font").deriveFont(Font.BOLD,11f));g.drawString("ID",x+1,y+13);g.dispose();}
+  }
   static final class Panel extends JPanel implements Disposable {
     final Project project;
     JButton aiButton;final javax.swing.Timer aiAvailabilityTimer=new javax.swing.Timer(3000,e->refreshAiAvailability());
@@ -58,7 +62,7 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
     final Set<Future<?>> jobs=ConcurrentHashMap.newKeySet();final List<Future<?>> cardJobs=new ArrayList<>();final Set<com.intellij.openapi.ui.popup.JBPopup> cardPopups=new HashSet<>();int cardEpoch;Future<?> listFuture;
     final DefaultListModel<IssueRow> model=new DefaultListModel<>();final JBList<IssueRow> list=new JBList<>(model);final List<IssueRow> rows=new ArrayList<>();
     final JTextField search=new JTextField();final JPanel details=new DetailPanel();final JTextArea message=text(I18n.t("Подключение к Jira…"),12);
-    final JButton refresh=new JButton(I18n.t("Обновить")),account=new JButton(I18n.t("Войти")),change=new JButton(),refreshIssue=new JButton(AllIcons.Actions.Refresh),stop=new JButton(I18n.t("Остановить"));
+    final JButton refresh=new JButton(AllIcons.Actions.Refresh),openIssue=new JButton(new IssueIdIcon()),account=new JButton(I18n.t("Войти")),change=new JButton(),refreshIssue=new JButton(AllIcons.Actions.Refresh),stop=new JButton(I18n.t("Остановить"));
     final JPanel filterRow=new JPanel(new BorderLayout(4,0)), presets=new JPanel(new FlowLayout(FlowLayout.LEFT,6,0));
     final FilterChip mine=new FilterChip(I18n.t("На мне"),true), active=new FilterChip(I18n.t("Незавершённые"),true);
     final JLabel customLabel=label(I18n.t("Кастомный фильтр"));final JButton editFilter=new JButton(),storeJql=new JButton(AllIcons.Actions.MenuSaveall);
@@ -70,7 +74,7 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
     volatile boolean disposed=false;boolean mutating=false,rendering=false;JiraApi api;IssueDetails shown;int listGeneration=0,detailGeneration=0;Future<?> detailFuture;
     Panel(Project project){
       super(new BorderLayout(8,6));this.project=project;project.putUserData(ACTIVE_PANEL,this);aiAvailabilityTimer.start();host=JiraSettings.jira(project);gitHost=JiraSettings.git(project);setBorder(BorderFactory.createEmptyBorder(6,6,6,6));
-      JPanel toolbar=new JPanel(new FlowLayout(FlowLayout.LEFT,6,0));toolbar.add(refresh);toolbar.add(stop);stop.setVisible(false);iconButton(change,I18n.t("Изменить статус"));change.setIcon(AllIcons.General.ArrowDown);change.setHorizontalTextPosition(SwingConstants.LEFT);change.setIconTextGap(8);iconButton(refreshIssue,I18n.t("Обновить карточку"));change.getAccessibleContext().setAccessibleName(I18n.t("Изменить статус"));change.setEnabled(false);refreshIssue.setEnabled(false);JPanel top=new JPanel(new BorderLayout());top.add(toolbar,BorderLayout.WEST);JPanel right=new JPanel();right.setLayout(new BoxLayout(right,BoxLayout.X_AXIS));JButton settings=new JButton(AllIcons.General.Settings);iconButton(settings,I18n.t("Настройки Jira и GitLab"));settings.addActionListener(e->{if(mutating)return;com.intellij.openapi.options.ShowSettingsUtil.getInstance().showSettingsDialog(project,JiraSettings.class);syncSettings();});right.add(settings);right.add(Box.createHorizontalStrut(4));right.add(account);top.add(right,BorderLayout.EAST);add(top,BorderLayout.NORTH);
+      JPanel toolbar=new JPanel(new FlowLayout(FlowLayout.LEFT,2,0));iconButton(refresh,I18n.t("Обновить список задач"));iconButton(openIssue,I18n.t("Перейти к задаче по ID"));toolbar.add(refresh);toolbar.add(openIssue);toolbar.add(stop);stop.setVisible(false);iconButton(change,I18n.t("Изменить статус"));change.setIcon(AllIcons.General.ArrowDown);change.setHorizontalTextPosition(SwingConstants.LEFT);change.setIconTextGap(8);iconButton(refreshIssue,I18n.t("Обновить карточку"));change.getAccessibleContext().setAccessibleName(I18n.t("Изменить статус"));change.setEnabled(false);refreshIssue.setEnabled(false);JPanel top=new JPanel(new BorderLayout());top.add(toolbar,BorderLayout.WEST);JPanel right=new JPanel();right.setLayout(new BoxLayout(right,BoxLayout.X_AXIS));JButton settings=new JButton(AllIcons.General.Settings);iconButton(settings,I18n.t("Настройки Jira и GitLab"));settings.addActionListener(e->{if(mutating)return;com.intellij.openapi.options.ShowSettingsUtil.getInstance().showSettingsDialog(project,JiraSettings.class);syncSettings();});right.add(settings);right.add(Box.createHorizontalStrut(4));right.add(account);top.add(right,BorderLayout.EAST);add(top,BorderLayout.NORTH);
       JPanel left=new JPanel(new BorderLayout(0,6));JPanel filters=new JPanel(new BorderLayout(0,4));filters.add(search,BorderLayout.NORTH);presets.add(mine);presets.add(active);filterRow.add(presets);JPanel filterActions=new JPanel(new FlowLayout(FlowLayout.RIGHT,2,0));iconButton(storeJql,I18n.t("Store JQL — сохранённые запросы"));iconButton(editFilter,I18n.t("Редактировать JQL"));filterActions.add(storeJql);filterActions.add(editFilter);filterRow.add(filterActions,BorderLayout.EAST);filters.add(filterRow);left.add(filters,BorderLayout.NORTH);left.add(new JBScrollPane(list));left.setMinimumSize(new Dimension(250,120));
       search.setToolTipText(I18n.t("Поиск по ключу, названию и статусу"));search.getAccessibleContext().setAccessibleName(I18n.t("Поиск задач Jira"));
       list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);list.setCellRenderer((items,value,index,selected,focus)->{
@@ -82,7 +86,7 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
       message.setRows(2);add(message,BorderLayout.SOUTH);
       list.addListSelectionListener(e->{if(!rendering&&!e.getValueIsAdjusting()&&!mutating&&list.getSelectedValue()!=null)loadDetails(list.getSelectedValue().key());});
       search.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){renderList();}public void removeUpdate(DocumentEvent e){renderList();}public void changedUpdate(DocumentEvent e){renderList();}});
-      refresh.addActionListener(e->loadList());account.addActionListener(e->{if(api==null)configure();else logout();});refreshIssue.addActionListener(e->{if(shown!=null)loadDetails(shown.key());});change.addActionListener(e->chooseStatus());stop.addActionListener(e->{cancelled.set(true);message.setText(I18n.t("Остановим после текущего запроса. Выполненные изменения сохранятся."));});
+      refresh.addActionListener(e->loadList());openIssue.addActionListener(e->{if(api!=null&&!mutating)new IssueLookupDialog().show();});account.addActionListener(e->{if(api==null)configure();else logout();});refreshIssue.addActionListener(e->{if(shown!=null)loadDetails(shown.key());});change.addActionListener(e->chooseStatus());stop.addActionListener(e->{cancelled.set(true);message.setText(I18n.t("Остановим после текущего запроса. Выполненные изменения сохранятся."));});
       customJql=PropertiesComponent.getInstance(project).getValue("corp.jira.jql","");customJqlName=PropertiesComponent.getInstance(project).getValue("corp.jira.jql.name","");updateFilter();
       quickJql=new JqlQuickMenu(storeJql,()->JqlStore.decode(PropertiesComponent.getInstance(project).getValue(JqlStore.KEY,"[]")),entry->{if(!mutating&&api!=null)applyQuery(entry.content(),entry.name());});storeJql.setToolTipText(null);
       storeJql.addActionListener(e->{quickJql.hide();JqlStore dialog=new JqlStore(project,query(),customJqlName);if(dialog.showAndGet()&&dialog.applied!=null)applyQuery(dialog.applied.content(),dialog.applied.name());});editFilter.addActionListener(e->editQuery());mine.addActionListener(e->{filterChanged();});active.addActionListener(e->{filterChanged();});authUi();
@@ -94,7 +98,7 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
     void applyQuery(String content,String name){customJql=content;customJqlName=name;PropertiesComponent p=PropertiesComponent.getInstance(project);p.setValue("corp.jira.jql",content,"");p.setValue("corp.jira.jql.name",name,"");filterChanged();}
     void editQuery(){if(!customJql.isBlank()){applyQuery("","");return;}String value=Messages.showMultilineInputDialog(project,I18n.t("Запрос Jira (JQL)"),I18n.t("Редактировать фильтр"),query(),Messages.getQuestionIcon(),null);if(value==null||value.isBlank())return;applyQuery(value.trim(),"");}
     void setAccount(String name){account.setText("");account.setIcon(new AvatarIcon(name));iconButton(account,name);account.setToolTipText(name);JiraApi client=api;if(client!=null)background(client::avatar,image->{if(api==client&&image!=null){AvatarIcon icon=new AvatarIcon(name);icon.image=image;account.setIcon(icon);}},ignored->{});}
-    void authUi(){boolean logged=api!=null;refresh.setVisible(logged);change.setVisible(logged);refreshIssue.setVisible(logged);filterRow.setVisible(logged);search.setVisible(logged);account.setEnabled(true);if(!logged){account.setText(I18n.t("Войти"));account.setIcon(null);account.setPreferredSize(null);account.setMinimumSize(null);account.setMaximumSize(null);account.setToolTipText(I18n.t("Войти в Jira"));account.setBorderPainted(true);account.setContentAreaFilled(true);}revalidate();repaint();}
+    void authUi(){boolean logged=api!=null;refresh.setVisible(logged);openIssue.setVisible(logged);change.setVisible(logged);refreshIssue.setVisible(logged);filterRow.setVisible(logged);search.setVisible(logged);account.setEnabled(true);if(!logged){account.setText(I18n.t("Войти"));account.setIcon(null);account.setPreferredSize(null);account.setMinimumSize(null);account.setMaximumSize(null);account.setToolTipText(I18n.t("Войти в Jira"));account.setBorderPainted(true);account.setContentAreaFilled(true);}revalidate();repaint();}
     void logout(){logout(()->{});}
     void logout(Runnable onSuccess){if(mutating)return;if(Messages.showYesNoDialog(project,I18n.t("Выйти из Jira и удалить сохранённый PAT из WebStorm?"),I18n.t("Выход из Jira"),I18n.t("Выйти"),I18n.t("Отмена"),Messages.getQuestionIcon())!=Messages.YES)return;account.setEnabled(false);background(()->{PasswordSafe.getInstance().set(credentials(),null);return true;},ignored->{closeSession();++listGeneration;++detailGeneration;if(detailFuture!=null)detailFuture.cancel(true);shown=null;rows.clear();model.clear();empty(I18n.t("Войдите в Jira"));authUi();message.setText(I18n.t("Вы вышли из Jira."));onSuccess.run();},e->{account.setEnabled(true);message.setText(I18n.t("Не удалось удалить PAT: ")+error(e));});}
     static void releaseResult(Object result){if(result instanceof JiraApi client)client.close();else if(result instanceof Map.Entry<?,?> entry&&entry.getKey() instanceof JiraApi client)client.close();}
@@ -126,6 +130,34 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
     void loadDetails(String key){
       if(api==null||mutating||disposed)return;shown=null;int generation=++detailGeneration;if(detailFuture!=null)detailFuture.cancel(true);change.setEnabled(false);refreshIssue.setEnabled(false);empty(I18n.t("Загрузка ")+key+"…");JiraApi client=api;
       worker.purge();detailFuture=background(()->client.details(key),result->{if(generation==detailGeneration){shown=result;showDetails(result);change.setEnabled(true);refreshIssue.setEnabled(true);message.setText(I18n.t("Карточка обновлена: ")+key);}},e->{if(generation==detailGeneration){shown=null;empty(I18n.t("Не удалось загрузить задачу"));message.setText(error(e));}});
+    }
+    final class IssueLookupDialog extends DialogWrapper {
+      final JTextField id=new JTextField(26);
+      final JLabel failure=label(" ");
+      Future<?> request;boolean closed;
+      IssueLookupDialog(){super(Panel.this.project);setTitle(I18n.t("Перейти к задаче по ID"));setOKButtonText(I18n.t("Открыть"));init();}
+      @Override protected JComponent createCenterPanel(){
+        JPanel body=new JPanel(new BorderLayout(0,4));body.add(label(I18n.t("ID задачи или ссылка Jira")),BorderLayout.NORTH);body.add(id);
+        failure.setForeground(JBColor.RED);body.add(failure,BorderLayout.SOUTH);
+        id.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){clear();}public void removeUpdate(DocumentEvent e){clear();}public void changedUpdate(DocumentEvent e){clear();}void clear(){failure.setText(" ");}});return body;
+      }
+      @Override public JComponent getPreferredFocusedComponent(){return id;}
+      @Override protected void doOKAction(){
+        if(request!=null&&!request.isDone())return;
+        String key;
+        try{key=IssueLookup.parse(id.getText(),host);}catch(IllegalArgumentException e){failure.setText(I18n.t(e.getMessage()));return;}
+        JiraApi client=api;if(client==null||mutating||disposed)return;
+        setOKActionEnabled(false);id.setEnabled(false);failure.setText(" ");
+        request=background(()->client.details(key),issue->{
+          if(closed)return;
+          ++detailGeneration;if(detailFuture!=null)detailFuture.cancel(true);
+          rendering=true;try{list.clearSelection();}finally{rendering=false;}
+          shown=issue;showDetails(issue);change.setEnabled(true);refreshIssue.setEnabled(true);
+          message.setText(I18n.t("Карточка обновлена: ")+issue.key());close(OK_EXIT_CODE);
+        },e->{if(closed)return;setOKActionEnabled(true);id.setEnabled(true);
+          failure.setText(e instanceof ApiException a&&a.status==404?I18n.t("Задача не найдена или недоступна."):I18n.t("Не удалось открыть задачу: ")+error(e));id.requestFocusInWindow();});
+      }
+      @Override protected void dispose(){closed=true;if(request!=null)request.cancel(true);super.dispose();}
     }
     void empty(String s){clearCard();details.add(text(s,16));details.revalidate();details.repaint();}
 
@@ -222,7 +254,7 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
         }) .createPopup();trackPopup(statusPopup);statusPopup.showUnderneathOf(change);
       },e->{change.setEnabled(true);message.setText(error(e));});
     }
-    void lock(boolean value){if(value&&quickJql!=null)quickJql.hide();storeJql.setEnabled(!value);editFilter.setEnabled(!value);mine.setEnabled(!value);active.setEnabled(!value);mutating=value;list.setEnabled(!value);search.setEnabled(!value);refresh.setEnabled(!value);account.setEnabled(!value);change.setEnabled(!value&&shown!=null);refreshIssue.setEnabled(!value&&shown!=null);stop.setVisible(value);}
+    void lock(boolean value){if(value&&quickJql!=null)quickJql.hide();storeJql.setEnabled(!value);editFilter.setEnabled(!value);mine.setEnabled(!value);active.setEnabled(!value);mutating=value;list.setEnabled(!value);search.setEnabled(!value);refresh.setEnabled(!value);openIssue.setEnabled(!value);account.setEnabled(!value);change.setEnabled(!value&&shown!=null);refreshIssue.setEnabled(!value&&shown!=null);stop.setVisible(value);}
     void runStatus(JiraApi client,String key,Status initial,StatusFlow.Choice choice,String fill){
       lock(true);cancelled.set(false);message.setText(I18n.t("Назначаем ")+choice.status().name()+"…");
       background(()->{StatusFlow.execute(StatusFlow.gateway(client,key),initial,choice,()->cancelled.get()||disposed,msg->SwingUtilities.invokeLater(()->{if(!disposed)message.setText(msg);}),fill);return client.details(key);},result->{lock(false);shown=result;showDetails(result);loadList();message.setText(I18n.t("Готово: ")+key+" → "+result.status().name()+I18n.t(". Карточка обновлена."));},e->{lock(false);message.setText(error(e)+I18n.t("\nПроверяем текущий статус…"));String failure=error(e);background(()->client.details(key),result->{shown=result;showDetails(result);message.setText(failure+I18n.t("\nТекущий статус: ")+result.status().name()+I18n.t(". Автоматического отката нет."));},readError->message.setText(failure+I18n.t("\nНе удалось проверить текущий статус. Обновите карточку.")));});

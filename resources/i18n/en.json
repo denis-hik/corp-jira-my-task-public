@@ -259,5 +259,16 @@
   "Текст для обязательных текстовых полей при переходах по маршруту (красные статусы).": "Text used for required text fields along a route (red statuses).",
   "Введите текст для обязательных текстовых полей перехода.": "Enter text for the required text fields of this transition.",
   "\n\nТекст обязательных полей: ": "\n\nRequired field text: ",
-  "\nКаждый шаг изменяет задачу. При ошибке выполненные изменения сохраняются.": "\nEach step changes the issue. Changes already made remain if an error occurs."
+  "\nКаждый шаг изменяет задачу. При ошибке выполненные изменения сохраняются.": "\nEach step changes the issue. Changes already made remain if an error occurs.",
+  "Обновить список задач": "Refresh issue list",
+  "Перейти к задаче по ID": "Go to issue by ID",
+  "ID задачи (например, PROJECT-123)": "Issue ID (for example, PROJECT-123)",
+  "Введите ID задачи, например PROJECT-123.": "Enter an issue ID, for example PROJECT-123.",
+  "Задача не найдена или недоступна.": "Issue not found or inaccessible.",
+  "Не удалось открыть задачу: ": "Could not open issue: ",
+  "Открыть": "Open",
+  "ID задачи или ссылка Jira": "Issue ID or Jira URL",
+  "Хост ссылки не совпадает с подключённой Jira.": "The URL host does not match the connected Jira.",
+  "В ссылке не найден корректный ID задачи.": "No valid issue ID found in the URL.",
+  "Введите ID задачи или корректную ссылку Jira.": "Enter an issue ID or a valid Jira URL."
 }
