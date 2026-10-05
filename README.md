@@ -1,53 +1,54 @@
 # Corp Jira - My task
 
-Нативный плагин WebStorm для корпоративной Jira Server / Data Center.
+**English** | [Русский](README.ru.md)
 
-## Превью
+A native WebStorm plugin for corporate Jira Server / Data Center.
 
-<a href="docs/images/connection.png"><img src="docs/images/connection.png" alt="Подключение к Jira по PAT" width="420"></a>
+## Preview
 
-## Возможности
+<a href="docs/images/connection.png"><img src="docs/images/connection.png" alt="Connect to Jira with a personal access token" width="420"></a>
 
-- Задачи по JQL, переключаемые фильтры и хранилище именованных запросов.
-- Карточка задачи, смена статуса и исполнителя.
-- Медиа, комментарии, вложения и упоминания пользователей.
-- Ссылки на коммиты в Git Log и подготовка черновика в AI Assistant.
-- Вход по PAT, профиль аккаунта, сохранение согласия на конкретный TLS-сертификат.
+## Features
 
-- Язык интерфейса EN / RU: по умолчанию язык IDE, выбор в основных настройках; после смены нужен перезапуск IDE.
-- Именованные ссылки Jira в описании открываются по нажатию.
+- Issue lists powered by JQL, toggleable filters and saved queries with custom names.
+- Issue details, status transitions and assignee changes.
+- Media, comments, attachments and user mentions.
+- Git Log links for commits and issue drafts in AI Assistant.
+- PAT sign-in, an account profile and saved approval for a specific TLS certificate.
+- English and Russian UI: defaults to the IDE language and can be changed in General settings. Restart the IDE after changing the language.
+- Clickable named Jira links in issue descriptions.
 
-## Установка
+## Installation
 
-Скачайте ZIP из [последнего релиза](https://github.com/denis-hik/corp-jira-my-task-public/releases/latest). В WebStorm откройте Settings → Plugins → меню шестерёнки → Install Plugin from Disk и выберите ZIP. Перезапустите IDE, если она предложит это.
+Download the ZIP from the [latest release](https://github.com/denis-hik/corp-jira-my-task-public/releases/latest). In WebStorm, open Settings → Plugins → the gear menu → Install Plugin from Disk and select the ZIP. Restart the IDE if prompted.
 
-Поддерживаемые версии WebStorm: 2025.3, 2026.1 и 2026.2 (сборки 253–262.*). Задайте адрес Jira и PAT в окне входа. Секрет хранится через Password Safe IDE, в репозитории токенов нет.
+Supported WebStorm versions: 2025.3, 2026.1 and 2026.2 (builds 253–262.*). Enter your Jira URL and PAT in the sign-in dialog. The token is stored using the IDE Password Safe; no tokens are included in this repository.
 
-## Сборка
+## Build
 
-Требуются Python 3 и установленный WebStorm с JBR javac и SDK-библиотеками. По умолчанию используется `/Applications/WebStorm.app/Contents`; для другого пути задайте `WEBSTORM_HOME`. Для релизов с поддержкой 2025.3 используйте SDK WebStorm 2025.3 и проверяйте готовый ZIP на всех заявленных ветках через JetBrains Plugin Verifier.
+Requires Python 3 and a WebStorm installation with JBR javac and SDK libraries. The default path is `/Applications/WebStorm.app/Contents`; set `WEBSTORM_HOME` to use another location. For releases supporting 2025.3, use the WebStorm 2025.3 SDK and check the resulting ZIP against every supported IDE series with JetBrains Plugin Verifier.
 
 ```sh
 python3 build.py
 ```
 
-Архив появится в `dist/`. Сборка обфусцирует внутренние классы и приватные члены через ASM из SDK WebStorm. Исходники, debug metadata и таблица соответствий не входят в ZIP. Таблицу `build/obfuscation-map.tsv` сохраняйте отдельно для соответствующего релиза; она не предназначена для распространения.
+The archive is created in `dist/`. The build obfuscates internal classes and private members using ASM from the WebStorm SDK. Source code, debug metadata and the mapping file are not included in the ZIP. Keep `build/obfuscation-map.tsv` separately for each release; it is not intended for distribution.
 
-Публичная версия использует ID `local.corp.jira.myTasks`. При переходе с прежней приватной сборки отключите её и заново настройте подключение в публичной версии.
+The public plugin ID is `local.corp.jira.myTasks`. When migrating from an earlier private build, disable that build and configure your connection again in the public version.
 
-## Ограничения
+## Limitations
 
-Поддерживается Jira Server / Data Center с PAT; совместимость с Jira Cloud не заявлена. Многошаговые маршруты основаны на встроенной схеме статусов и могут не соответствовать workflow вашего сервера. Для новых установок выбран Standard: только переходы, возвращённые Jira для текущей задачи.
+Supports Jira Server / Data Center with PAT authentication; Jira Cloud compatibility is not claimed. Multi-step transitions use a built-in status map and may not match your server's workflow. New installations default to Standard mode, which only offers transitions returned by Jira for the current issue.
 
-Интеграция AI использует внутренние API JetBrains. 
+The AI integration uses internal JetBrains APIs.
 
-## Лицензия и правила
+## License and policies
 
-[MIT](LICENSE): разрешены использование, изменение и распространение с сохранением уведомления об авторстве.
+[MIT](LICENSE): use, modification and redistribution are permitted with the copyright notice preserved.
 
-- [Конфиденциальность](PRIVACY.md)
-- [Безопасность](SECURITY.md)
-- [Обратная связь и вклад в проект](CONTRIBUTING.md)
-- [Подготовка публичной публикации](PUBLICATION.md)
+- [Privacy](PRIVACY.md)
+- [Security](SECURITY.md)
+- [Feedback and contributions](CONTRIBUTING.md)
+- [Public release policy](PUBLICATION.md)
 
-Плагин не связан с Atlassian или JetBrains и не является их официальным продуктом.
+This plugin is not affiliated with Atlassian or JetBrains and is not an official product of either company.
