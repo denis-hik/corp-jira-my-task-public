@@ -6,7 +6,7 @@ A native WebStorm plugin for corporate Jira Server / Data Center.
 
 ## Preview
 
-<a href="docs/images/connection.png"><img src="docs/images/connection.png" alt="Connect to Jira with a personal access token" width="420"></a>
+<a href="docs/images/CorpJiraPreview.png"><img src="docs/images/CorpJiraPreview.png" alt="Corp Jira - My task preview" width="420"></a>
 
 ## Features
 

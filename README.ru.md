@@ -6,7 +6,7 @@
 
 ## Превью
 
-<a href="docs/images/connection.png"><img src="docs/images/connection.png" alt="Подключение к Jira по PAT" width="420"></a>
+<a href="docs/images/CorpJiraPreview.png"><img src="docs/images/CorpJiraPreview.png" alt="Превью Corp Jira - My task" width="420"></a>
 
 ## Возможности
 
