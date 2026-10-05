@@ -30,9 +30,16 @@ public final class JiraApi implements AutoCloseable {
     }
   }
   JsonElement request(String method,String path,JsonObject body)throws Exception{
+    return restRequest(method,"/rest/api/2"+path,body);
+  }
+  JsonObject development(String query)throws Exception{
+    if(!query.matches("(?:summary|detail)\\?issueId=[0-9]+(?:&applicationType=[A-Za-z0-9%_.+-]+&dataType=(?:repository|branch|pullrequest))?"))throw new IllegalArgumentException("Development query");
+    return restRequest("GET","/rest/dev-status/1.0/issue/"+query,null).getAsJsonObject();
+  }
+  private JsonElement restRequest(String method,String path,JsonObject body)throws Exception{
     if(Thread.currentThread().isInterrupted())throw new InterruptedException(I18n.t("Отменено"));
     if(!path.startsWith("/")||path.startsWith("//"))throw new IllegalArgumentException("API path");
-    HttpRequest.Builder builder=HttpRequest.newBuilder(URI.create(this.origin+"/rest/api/2"+path)).timeout(Duration.ofSeconds(25))
+    HttpRequest.Builder builder=HttpRequest.newBuilder(URI.create(this.origin+path)).timeout(Duration.ofSeconds(25))
       .header("Authorization","Bearer "+token).header("Accept","application/json");
     if(body!=null)builder.header("Content-Type","application/json");
     builder.method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body.toString(),StandardCharsets.UTF_8));
@@ -117,7 +124,7 @@ public final class JiraApi implements AutoCloseable {
   }
   void assignUser(String key,User user)throws Exception{if(user.name().isBlank())throw new IllegalArgumentException(I18n.t("Неизвестный логин исполнителя"));JsonObject body=new JsonObject();body.addProperty("name",user.name());request("PUT",issuePath(key)+"/assignee",body);}
   void comment(String key,String text)throws Exception{JsonObject body=new JsonObject();body.addProperty("body",text);request("POST",issuePath(key)+"/comment",body);}
-  void upload(String key,java.nio.file.Path file)throws Exception{
+  String upload(String key,java.nio.file.Path file)throws Exception{
     String boundary="Corp"+UUID.randomUUID().toString().replace("-","");String name=file.getFileName().toString().replace("\\","_").replace("\"","_").replace("\r","_").replace("\n","_");
     String head="--"+boundary+"\r\nContent-Disposition: form-data; name=\"file\"; filename=\""+name+"\"\r\nContent-Type: application/octet-stream\r\n\r\n";
     var body=HttpRequest.BodyPublishers.concat(HttpRequest.BodyPublishers.ofString(head,StandardCharsets.UTF_8),HttpRequest.BodyPublishers.ofFile(file),HttpRequest.BodyPublishers.ofString("\r\n--"+boundary+"--\r\n"));
@@ -127,6 +134,8 @@ public final class JiraApi implements AutoCloseable {
     JsonElement parsed=JsonNull.INSTANCE;try{parsed=JsonParser.parseString(responseText);}catch(Exception ignored){}
     if(response.statusCode()<200||response.statusCode()>=300)throw new ApiException(response.statusCode(),parsed.isJsonObject()?parsed.getAsJsonObject():new JsonObject());
     if(!parsed.isJsonArray()||parsed.getAsJsonArray().isEmpty())throw new IOException(I18n.t("Jira не подтвердила загрузку файла. Проверьте вложения перед повтором."));
+    JsonObject attachment=parsed.getAsJsonArray().get(0).getAsJsonObject();
+    return str(attachment,"mimeType").startsWith("image/")?str(attachment,"filename"):null;
   }
   void assign(String key,Status status)throws Exception{JsonObject s=new JsonObject();s.addProperty("id",status.id());JsonObject fields=new JsonObject();fields.add("status",s);edit(key,fields);}
   void edit(String key,JsonObject fields)throws Exception{JsonObject body=new JsonObject();body.add("fields",fields);request("PUT",issuePath(key),body);}

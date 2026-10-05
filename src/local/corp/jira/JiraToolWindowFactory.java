@@ -54,8 +54,75 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
     public int getIconWidth(){return 18;}public int getIconHeight(){return 18;}
     public void paintIcon(Component c,Graphics graphics,int x,int y){Graphics2D g=(Graphics2D)graphics.create();g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,RenderingHints.VALUE_TEXT_ANTIALIAS_ON);g.setColor(c.getForeground());g.setFont(UIManager.getFont("Label.font").deriveFont(Font.BOLD,11f));g.drawString("ID",x+1,y+13);g.dispose();}
   }
+  static final class CompactGitPanel extends JPanel {
+    CompactGitPanel(LayoutManager layout){super(layout);setAlignmentX(Component.LEFT_ALIGNMENT);}
+    @Override public Dimension getMaximumSize(){return new Dimension(Integer.MAX_VALUE,getPreferredSize().height);}
+  }
+  static final class CommitInfoIcon implements Icon {
+    public int getIconWidth(){return 16;}public int getIconHeight(){return 16;}
+    public void paintIcon(Component c,Graphics graphics,int x,int y){Graphics2D g=(Graphics2D)graphics.create();try{g.setColor(c.getForeground());g.setStroke(new BasicStroke(1.5f));g.drawLine(x+1,y+8,x+4,y+8);g.drawOval(x+4,y+4,8,8);g.drawLine(x+12,y+8,x+15,y+8);}finally{g.dispose();}}
+  }
   static final class Panel extends JPanel implements Disposable {
     final Project project;
+    final JSplitPane developmentSplit=new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+    final DetailPanel developmentContent=new DetailPanel();
+    final List<Future<?>> developmentLookups=new ArrayList<>();String developmentKey;Future<?> developmentJob;int developmentGeneration;
+    void hideDevelopment(){++developmentGeneration;for(Future<?> lookup:developmentLookups)lookup.cancel(true);developmentLookups.clear();if(developmentJob!=null)developmentJob.cancel(true);developmentJob=null;developmentSplit.setRightComponent(null);developmentSplit.setDividerSize(0);developmentContent.removeAll();}
+    void openDevelopment(IssueDetails issue){
+      hideDevelopment();developmentKey=issue.key();int generation=developmentGeneration;
+      developmentContent.setLayout(new BoxLayout(developmentContent,BoxLayout.Y_AXIS));developmentContent.setBorder(BorderFactory.createEmptyBorder(10,12,10,12));
+      developmentContent.add(label("Info Git · "+issue.key()));developmentContent.add(text(I18n.t("Загрузка данных Git…"),13));
+      JBScrollPane scroll=new JBScrollPane(developmentContent);scroll.setMinimumSize(new Dimension(240,100));
+      developmentSplit.setRightComponent(scroll);developmentSplit.setDividerSize(5);developmentSplit.setResizeWeight(.65);developmentSplit.setDividerLocation(.65);
+      JiraApi client=api;
+      developmentJob=background(()->JiraDevelopment.load(client,issue.key()),data->{if(generation!=developmentGeneration)return;renderDevelopment(issue,data);},failure->{if(generation!=developmentGeneration)return;renderDevelopment(issue,new JiraDevelopment.Data(List.of(),List.of(error(failure))));});
+    }
+    void renderDevelopment(IssueDetails issue,JiraDevelopment.Data data){
+      boolean projectOnly=JiraSettings.gitProjectOnly(project);Set<String> repositories=projectOnly?ProjectRepositories.current(project):Set.of();
+      if(projectOnly)data=new JiraDevelopment.Data(data.entries().stream().filter(entry->ProjectRepositories.matches(entry,repositories)).toList(),data.errors());
+      developmentContent.removeAll();JPanel top=new CompactGitPanel(new BorderLayout());top.add(label("Info Git · "+issue.key()));JButton retry=new JButton(AllIcons.Actions.Refresh);iconButton(retry,I18n.t("Обновить Git"));retry.addActionListener(e->openDevelopment(issue));top.add(retry,BorderLayout.EAST);developmentContent.add(top);
+      for(String error:data.errors()){JTextArea warning=text(error,12);warning.setForeground(JBColor.RED);developmentContent.add(warning);}
+      if(data.entries().isEmpty())developmentContent.add(text(I18n.t(data.errors().isEmpty()?(projectOnly?"Нет данных Git для репозиториев текущего проекта":"Нет данных Development"):"Не удалось загрузить данные Git"),13));
+      for(String kind:List.of("Ветки","Коммиты","Pull requests")){
+        var entries=data.entries().stream().filter(entry->entry.kind().equals(kind)).toList();if(entries.isEmpty())continue;
+        JTextArea section=text(I18n.t(kind)+" · "+entries.size(),15);section.setAlignmentX(Component.LEFT_ALIGNMENT);section.setBorder(BorderFactory.createEmptyBorder(8,0,2,0));developmentContent.add(section);
+        for(var entry:entries){
+          JPanel card=new CompactGitPanel(new BorderLayout(4,0));card.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0,0,1,0,JBColor.border()),BorderFactory.createEmptyBorder(4,0,6,0)));
+          JPanel body=new JPanel();body.setLayout(new BoxLayout(body,BoxLayout.Y_AXIS));if(!entry.repository().isBlank()){JLabel repo=label(entry.repository());repo.setAlignmentX(Component.LEFT_ALIGNMENT);body.add(repo);}JTextArea title=text(entry.title(),13);title.setAlignmentX(Component.LEFT_ALIGNMENT);title.setBorder(BorderFactory.createEmptyBorder(3,0,0,0));body.add(title);
+          if(!entry.description().isBlank()){JTextArea meta=text(entry.description(),12);meta.setAlignmentX(Component.LEFT_ALIGNMENT);meta.setBorder(BorderFactory.createEmptyBorder(4,0,0,0));meta.setForeground(entry.description().startsWith("MERGED")?new JBColor(new Color(0x18794E),new Color(0x7EE2B8)):UIManager.getColor("Label.disabledForeground"));body.add(meta);}card.add(body);
+          try{java.net.URI uri=java.net.URI.create(entry.url());if(uri.getHost()!=null&&uri.getUserInfo()==null&&Set.of("https","http").contains(uri.getScheme())){JButton link=new JButton("↗");iconButton(link,I18n.t("Открыть в браузере"));link.addActionListener(e->BrowserUtil.browse(uri.toString()));JPanel actions=new JPanel(new FlowLayout(FlowLayout.RIGHT,0,0));actions.add(link);card.add(actions,BorderLayout.EAST);
+          if(entry.kind().equals("Коммиты")&&JiraSettings.gitLogSync(project)){
+            int generation=developmentGeneration;String origin=uri.getScheme()+"://"+uri.getAuthority();
+            developmentLookups.removeIf(Future::isDone);
+            developmentLookups.add(background(()->CommentLinks.find(project,entry.url(),origin),commit->{
+              if(generation!=developmentGeneration||commit==null||!JiraSettings.gitLogSync(project))return;
+              JButton log=new JButton(new CommitInfoIcon());iconButton(log,I18n.t("Открыть коммит в Git Log WebStorm"));log.addActionListener(event->CommentLinks.open(project,commit));actions.add(log,0);developmentContent.revalidate();developmentContent.repaint();
+            },ignored->{}));
+          }}}catch(IllegalArgumentException ignored){}
+          developmentContent.add(card);
+        }
+      }
+      developmentContent.revalidate();developmentContent.repaint();
+    }
+
+    final javax.swing.Timer gitRefreshTimer=new javax.swing.Timer(4000,e->refreshAfterGit());
+    String gitRefreshKey;int gitRefreshSession,gitRefreshGeneration;
+    void queueGitRefresh(){SwingUtilities.invokeLater(()->{
+      if(disposed||project.isDisposed()||!JiraSettings.gitRefresh(project)||api==null||shown==null)return;
+      gitRefreshKey=shown.key();gitRefreshSession=session;gitRefreshGeneration=detailGeneration;gitRefreshTimer.restart();
+    });}
+    void refreshAfterGit(){
+      if(disposed||project.isDisposed()||!JiraSettings.gitRefresh(project)||api==null||shown==null||session!=gitRefreshSession||detailGeneration!=gitRefreshGeneration||!shown.key().equals(gitRefreshKey))return;
+      if(mutating){gitRefreshTimer.restart();return;}
+      String key=shown.key();int generation=++detailGeneration;JiraApi client=api;
+      if(detailFuture!=null)detailFuture.cancel(true);
+      detailFuture=background(()->client.details(key),issue->{
+        if(!JiraSettings.gitRefresh(project)||mutating||detailGeneration!=generation||shown==null||!shown.key().equals(key))return;
+        shown=issue;showDetails(issue);change.setEnabled(true);refreshIssue.setEnabled(true);
+        message.setText(I18n.t("Карточка обновлена после Git: ")+key);
+      },failure->{if(detailGeneration==generation)message.setText(I18n.t("Не удалось обновить карточку после Git: ")+error(failure));});
+    }
+
     JButton aiButton;final javax.swing.Timer aiAvailabilityTimer=new javax.swing.Timer(3000,e->refreshAiAvailability());
     void refreshAiAvailability(){if(aiButton!=null&&isShowing()){boolean visible=AiChatBridge.available(project);if(aiButton.isVisible()!=visible){aiButton.setVisible(visible);details.revalidate();details.repaint();}}}
     final ThreadPoolExecutor worker=new ThreadPoolExecutor(2,2,0L,TimeUnit.MILLISECONDS,new ArrayBlockingQueue<>(128),r->{Thread t=new Thread(r,"Corp Jira REST");t.setDaemon(true);return t;});
@@ -65,6 +132,7 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
     final JButton refresh=new JButton(AllIcons.Actions.Refresh),openIssue=new JButton(new IssueIdIcon()),account=new JButton(I18n.t("Войти")),change=new JButton(),refreshIssue=new JButton(AllIcons.Actions.Refresh),stop=new JButton(I18n.t("Остановить"));
     final JPanel filterRow=new JPanel(new BorderLayout(4,0)), presets=new JPanel(new FlowLayout(FlowLayout.LEFT,6,0));
     final FilterChip mine=new FilterChip(I18n.t("На мне"),true), active=new FilterChip(I18n.t("Незавершённые"),true);
+    final FilterChip severityFilter=new FilterChip("Severity",false);Severity.Level selectedSeverity;String severityField="";
     final JLabel customLabel=label(I18n.t("Кастомный фильтр"));final JButton editFilter=new JButton(),storeJql=new JButton(AllIcons.Actions.MenuSaveall);
     final Map<String,Composer> drafts=new HashMap<>();
     String host,gitHost;volatile int session=0;
@@ -73,16 +141,21 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
     final AtomicBoolean cancelled=new AtomicBoolean();
     volatile boolean disposed=false;boolean mutating=false,rendering=false;JiraApi api;IssueDetails shown;int listGeneration=0,detailGeneration=0;Future<?> detailFuture;
     Panel(Project project){
-      super(new BorderLayout(8,6));this.project=project;project.putUserData(ACTIVE_PANEL,this);aiAvailabilityTimer.start();host=JiraSettings.jira(project);gitHost=JiraSettings.git(project);setBorder(BorderFactory.createEmptyBorder(6,6,6,6));
+      super(new BorderLayout(8,6));this.project=project;gitRefreshTimer.setRepeats(false);
+      var gitConnection=project.getMessageBus().connect(this);
+      gitConnection.subscribe(git4idea.push.GitPushListener.getTOPIC(),(repository,result)->queueGitRefresh());
+      gitConnection.subscribe(git4idea.repo.GitRepository.GIT_REPO_CHANGE,repository->queueGitRefresh());
+      gitConnection.subscribe(com.intellij.openapi.vcs.update.UpdatedFilesListener.UPDATED_FILES,files->queueGitRefresh());
+      project.putUserData(ACTIVE_PANEL,this);aiAvailabilityTimer.start();host=JiraSettings.jira(project);gitHost=JiraSettings.git(project);setBorder(BorderFactory.createEmptyBorder(6,6,6,6));
       JPanel toolbar=new JPanel(new FlowLayout(FlowLayout.LEFT,2,0));iconButton(refresh,I18n.t("Обновить список задач"));iconButton(openIssue,I18n.t("Перейти к задаче по ID"));toolbar.add(refresh);toolbar.add(openIssue);toolbar.add(stop);stop.setVisible(false);iconButton(change,I18n.t("Изменить статус"));change.setIcon(AllIcons.General.ArrowDown);change.setHorizontalTextPosition(SwingConstants.LEFT);change.setIconTextGap(8);iconButton(refreshIssue,I18n.t("Обновить карточку"));change.getAccessibleContext().setAccessibleName(I18n.t("Изменить статус"));change.setEnabled(false);refreshIssue.setEnabled(false);JPanel top=new JPanel(new BorderLayout());top.add(toolbar,BorderLayout.WEST);JPanel right=new JPanel();right.setLayout(new BoxLayout(right,BoxLayout.X_AXIS));JButton settings=new JButton(AllIcons.General.Settings);iconButton(settings,I18n.t("Настройки Jira и GitLab"));settings.addActionListener(e->{if(mutating)return;com.intellij.openapi.options.ShowSettingsUtil.getInstance().showSettingsDialog(project,JiraSettings.class);syncSettings();});right.add(settings);right.add(Box.createHorizontalStrut(4));right.add(account);top.add(right,BorderLayout.EAST);add(top,BorderLayout.NORTH);
-      JPanel left=new JPanel(new BorderLayout(0,6));JPanel filters=new JPanel(new BorderLayout(0,4));filters.add(search,BorderLayout.NORTH);presets.add(mine);presets.add(active);filterRow.add(presets);JPanel filterActions=new JPanel(new FlowLayout(FlowLayout.RIGHT,2,0));iconButton(storeJql,I18n.t("Store JQL — сохранённые запросы"));iconButton(editFilter,I18n.t("Редактировать JQL"));filterActions.add(storeJql);filterActions.add(editFilter);filterRow.add(filterActions,BorderLayout.EAST);filters.add(filterRow);left.add(filters,BorderLayout.NORTH);left.add(new JBScrollPane(list));left.setMinimumSize(new Dimension(250,120));
+      JPanel left=new JPanel(new BorderLayout(0,6));JPanel filters=new JPanel(new BorderLayout(0,4));filters.add(search,BorderLayout.NORTH);presets.add(mine);presets.add(active);presets.add(severityFilter);severityFilter.addActionListener(e->{severityFilter.setSelected(selectedSeverity!=null);chooseSeverityFilter();});filterRow.add(presets);JPanel filterActions=new JPanel(new FlowLayout(FlowLayout.RIGHT,2,0));iconButton(storeJql,I18n.t("Store JQL — сохранённые запросы"));iconButton(editFilter,I18n.t("Редактировать JQL"));filterActions.add(storeJql);filterActions.add(editFilter);filterRow.add(filterActions,BorderLayout.EAST);filters.add(filterRow);left.add(filters,BorderLayout.NORTH);left.add(new JBScrollPane(list));left.setMinimumSize(new Dimension(250,120));
       search.setToolTipText(I18n.t("Поиск по ключу, названию и статусу"));search.getAccessibleContext().setAccessibleName(I18n.t("Поиск задач Jira"));
       list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);list.setCellRenderer((items,value,index,selected,focus)->{
         JPanel cell=new JPanel(new BorderLayout(0,4));cell.setBorder(BorderFactory.createEmptyBorder(9,8,9,8));Color fg=selected?items.getSelectionForeground():items.getForeground();cell.setBackground(selected?items.getSelectionBackground():items.getBackground());
         JLabel key=label(value.key()+"  ·  "+value.status().name());key.setFont(key.getFont().deriveFont(Font.BOLD));key.setForeground(fg);JLabel title=label(value.summary());title.setForeground(fg);cell.add(key,BorderLayout.NORTH);cell.add(title);return cell;
       });
       details.setLayout(new BoxLayout(details,BoxLayout.Y_AXIS));details.setBorder(BorderFactory.createEmptyBorder(12,14,12,14));empty(I18n.t("Выберите задачу слева"));
-      JSplitPane split=new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,left,new JBScrollPane(details));split.setResizeWeight(.30);split.setDividerLocation(370);add(split);
+      developmentSplit.setLeftComponent(new JBScrollPane(details));developmentSplit.setRightComponent(null);developmentSplit.setDividerSize(0);JSplitPane split=new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,left,developmentSplit);split.setResizeWeight(.30);split.setDividerLocation(370);add(split);
       message.setRows(2);add(message,BorderLayout.SOUTH);
       list.addListSelectionListener(e->{if(!rendering&&!e.getValueIsAdjusting()&&!mutating&&list.getSelectedValue()!=null)loadDetails(list.getSelectedValue().key());});
       search.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){renderList();}public void removeUpdate(DocumentEvent e){renderList();}public void changedUpdate(DocumentEvent e){renderList();}});
@@ -93,7 +166,17 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
     }
     boolean syncSettings(){String next=JiraSettings.jira(project),git=JiraSettings.git(project);boolean changed=!next.equals(host);gitHost=git;if(changed){host=next;closeSession();++listGeneration;++detailGeneration;if(detailFuture!=null)detailFuture.cancel(true);api=null;shown=null;drafts.clear();rows.clear();model.clear();empty(I18n.t("Войдите в Jira"));connect();}else if(shown!=null)showDetails(shown);return changed;}
     void filterChanged(){++detailGeneration;if(detailFuture!=null)detailFuture.cancel(true);shown=null;change.setEnabled(false);refreshIssue.setEnabled(false);rows.clear();model.clear();empty(I18n.t("Выберите задачу из обновлённого списка"));updateFilter();loadList();}
-    String query(){if(!customJql.isBlank())return customJql;return (mine.isSelected()?"assignee = currentUser()":"")+(mine.isSelected()&&active.isSelected()?" AND ":"")+(active.isSelected()?"status NOT IN (Closed, Done, Resolved, Declined, Rejected)":"");}
+    String query(){if(!customJql.isBlank())return customJql;List<String> terms=new ArrayList<>();if(mine.isSelected())terms.add("assignee = currentUser()");if(active.isSelected())terms.add("status NOT IN (Closed, Done, Resolved, Declined, Rejected)");if(selectedSeverity!=null)terms.add(Severity.clause(severityField,selectedSeverity));return String.join(" AND ",terms);}
+    void chooseSeverityFilter(){
+      if(api==null||mutating)return;JiraApi client=api;severityFilter.setEnabled(false);
+      background(()->Severity.filters(client),data->{severityFilter.setEnabled(!mutating);
+        List<Severity.Level> choices=new ArrayList<>();choices.add(new Severity.Level("",I18n.t("Все уровни")));choices.addAll(data.levels());
+        var popup=JBPopupFactory.getInstance().createPopupChooserBuilder(choices).setTitle("Severity").setNamerForFiltering(Severity.Level::name)
+          .setRenderer((ListCellRenderer<Severity.Level>)(items,value,index,selected,focus)->{JLabel l=label(value.name());l.setOpaque(true);l.setBorder(BorderFactory.createEmptyBorder(7,10,7,10));l.setBackground(selected?items.getSelectionBackground():items.getBackground());l.setForeground(value.id().isEmpty()?items.getForeground():Severity.color(value));return l;})
+          .setItemChosenCallback(value->{if(api!=client||mutating)return;selectedSeverity=value.id().isEmpty()?null:value;severityField=data.field();severityFilter.setText(selectedSeverity==null?"Severity":selectedSeverity.name());severityFilter.accent=selectedSeverity==null?null:Severity.color(selectedSeverity);severityFilter.setSelected(selectedSeverity!=null);severityFilter.setToolTipText(selectedSeverity==null?"Severity":"Severity: "+selectedSeverity.name());severityFilter.revalidate();severityFilter.repaint();filterChanged();}).createPopup();trackPopup(popup);popup.showUnderneathOf(severityFilter);
+      },failure->{severityFilter.setEnabled(!mutating);message.setText(error(failure));});
+    }
+
     void updateFilter(){filterRow.remove(presets);filterRow.remove(customLabel);filterRow.add(customJql.isBlank()?presets:customLabel,BorderLayout.CENTER);customLabel.setText(I18n.t("Кастомный фильтр")+(customJqlName.isBlank()?"":": "+customJqlName));editFilter.setText("");editFilter.setIcon(customJql.isBlank()?AllIcons.Actions.Edit:AllIcons.Actions.Close);iconButton(editFilter,customJql.isBlank()?I18n.t("Редактировать JQL"):I18n.t("Отменить кастомный JQL"));filterRow.setToolTipText(query());filterRow.revalidate();filterRow.repaint();}
     void applyQuery(String content,String name){customJql=content;customJqlName=name;PropertiesComponent p=PropertiesComponent.getInstance(project);p.setValue("corp.jira.jql",content,"");p.setValue("corp.jira.jql.name",name,"");filterChanged();}
     void editQuery(){if(!customJql.isBlank()){applyQuery("","");return;}String value=Messages.showMultilineInputDialog(project,I18n.t("Запрос Jira (JQL)"),I18n.t("Редактировать фильтр"),query(),Messages.getQuestionIcon(),null);if(value==null||value.isBlank())return;applyQuery(value.trim(),"");}
@@ -110,13 +193,14 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
     <T> void cardBackground(Job<T> job,java.util.function.Consumer<T> done,java.util.function.Consumer<Throwable> failed){int epoch=cardEpoch;cardJobs.removeIf(Future::isDone);cardJobs.add(background(job,result->{if(epoch==cardEpoch)done.accept(result);},error->{if(epoch==cardEpoch)failed.accept(error);}));}
     void trackPopup(com.intellij.openapi.ui.popup.JBPopup popup){cardPopups.add(popup);popup.addListener(new com.intellij.openapi.ui.popup.JBPopupListener(){public void onClosed(com.intellij.openapi.ui.popup.LightweightWindowEvent event){cardPopups.remove(popup);}});}
     void clearCard(){
+      hideDevelopment();
       for(var popup:List.copyOf(cardPopups))popup.cancel();cardPopups.clear();
       ++cardEpoch;for(Future<?> task:cardJobs)task.cancel(true);cardJobs.clear();worker.purge();aiButton=null;for(JButton button:List.of(change,refreshIssue)){Container parent=button.getParent();if(parent!=null)parent.remove(button);}
       // A retained composer must not retain its old parent and all sibling comments.
-      detachDrafts(drafts,composer->{composer.input.dismiss();if(composer.mentionSearch!=null)composer.mentionSearch.cancel(true);return composer.sending||composer.uncertain||!composer.input.getText().isEmpty()||!composer.files.isEmpty();});
+      detachDrafts(drafts,composer->{composer.input.dismiss();if(composer.mentionSearch!=null)composer.mentionSearch.cancel(true);return composer.sending||composer.uncertain||!composer.input.getText().isEmpty()||!composer.files.isEmpty()||!composer.pendingImages.isEmpty();});
       details.removeAll();
     }
-    void closeSession(){if(quickJql!=null)quickJql.hide();++session;for(Future<?> task:jobs)task.cancel(true);worker.purge();if(api!=null)api.close();api=null;clearCard();drafts.clear();}
+    void closeSession(){developmentKey=null;selectedSeverity=null;severityField="";severityFilter.setText("Severity");severityFilter.setSelected(false);severityFilter.accent=null;severityFilter.setEnabled(true);gitRefreshTimer.stop();gitRefreshKey=null;if(quickJql!=null)quickJql.hide();++session;for(Future<?> task:jobs)task.cancel(true);worker.purge();if(api!=null)api.close();api=null;clearCard();drafts.clear();}
     void connect(){if(host.isBlank()){authUi();message.setText(I18n.t("Нажмите «Войти» и введите персональный токен Jira."));return;}String authHost=host;CredentialAttributes authCredentials=credentials();authUi();account.setEnabled(false);background(()->{String secret=PasswordSafe.getInstance().getPassword(authCredentials);if(secret==null||secret.isBlank())return null;JiraApi candidate=new JiraApi(secret,authHost,JiraTls.savedApproval(authHost));try{return Map.entry(candidate,str(candidate.get("/myself"),"displayName"));}catch(Exception e){candidate.close();throw e;}},result->{account.setEnabled(true);if(result==null){message.setText(I18n.t("Нажмите «Войти» и введите персональный токен Jira."));return;}api=result.getKey();setAccount(result.getValue());authUi();loadList();},e->{api=null;authUi();message.setText(I18n.t("Войдите снова: ")+error(e));});}
     void configure(){
       if(mutating)return;TokenDialog dialog=new TokenDialog(project,host);if(!dialog.showAndGet())return;char[] chars=dialog.password.getPassword();String secret=new String(chars).trim();Arrays.fill(chars,'\0');dialog.password.setText("");
@@ -159,7 +243,7 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
       }
       @Override protected void dispose(){closed=true;if(request!=null)request.cancel(true);super.dispose();}
     }
-    void empty(String s){clearCard();details.add(text(s,16));details.revalidate();details.repaint();}
+    void empty(String s){developmentKey=null;clearCard();details.add(text(s,16));details.revalidate();details.repaint();}
 
     void block(JComponent c){c.setAlignmentX(Component.LEFT_ALIGNMENT);c.setMaximumSize(new Dimension(Integer.MAX_VALUE,c.getPreferredSize().height));details.add(c);}
     void showDetails(IssueDetails issue){
@@ -172,13 +256,13 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
         void copyUrl(java.awt.event.MouseEvent e){if(!key.isEnabled()||handled)return;handled=true;CopyPasteManager.getInstance().setContents(new StringSelection(issueUrl));if(copied!=null)copied.hide();JLabel hint=label(I18n.t("URL скопирован"));hint.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));copied=JBPopupFactory.getInstance().createBalloonBuilder(hint).setFadeoutTime(1600).setHideOnClickOutside(true).setHideOnKeyOutside(true).setAnimationCycle(0).createBalloon();copied.show(new com.intellij.ui.awt.RelativePoint(key,new Point(key.getWidth()/2,0)),com.intellij.openapi.ui.popup.Balloon.Position.above);e.consume();}
         public void mousePressed(java.awt.event.MouseEvent e){handled=false;if(e.isPopupTrigger()||SwingUtilities.isRightMouseButton(e))copyUrl(e);}
         public void mouseReleased(java.awt.event.MouseEvent e){if(e.isPopupTrigger()||SwingUtilities.isRightMouseButton(e))copyUrl(e);handled=false;}
-      });status.add(key);status.add(Box.createHorizontalStrut(12));change.setText(issue.status().name());iconButton(change,I18n.t("Изменить статус"));change.setForeground(new JBColor(new Color(0x2459AA),new Color(0x85B8FF)));status.add(change);header.add(status);JPanel actions=new JPanel();actions.setLayout(new BoxLayout(actions,BoxLayout.X_AXIS));JButton copyTask=new JButton(AllIcons.Actions.Copy),chatTask=new JButton(AiChatBridge.icon());iconButton(copyTask,I18n.t("Скопировать задачу целиком"));iconButton(chatTask,I18n.t("Новый чат ChatGPT / Codex с задачей"));aiButton=chatTask;chatTask.setVisible(AiChatBridge.available(project));copyTask.addActionListener(e->{CopyPasteManager.getInstance().setContents(new StringSelection(TaskExport.text(host,issue)));message.setText(I18n.t("Задача скопирована: описание, ссылки на медиа и комментарии с временем."));});chatTask.addActionListener(e->exportToChat(issue,chatTask));actions.add(copyTask);actions.add(chatTask);actions.add(refreshIssue);header.add(actions,BorderLayout.EAST);block(header);
+      });status.add(key);status.add(Box.createHorizontalStrut(12));change.setText(issue.status().name());iconButton(change,I18n.t("Изменить статус"));change.setForeground(new JBColor(new Color(0x2459AA),new Color(0x85B8FF)));status.add(change);status.add(Box.createHorizontalStrut(8));JButton severity=new JButton("Severity…");iconButton(severity,"Severity");severity.setEnabled(false);status.add(severity);loadSeverity(issue,severity);status.add(Box.createHorizontalStrut(8));JButton gitInfo=new JButton("Info Git",new CommitInfoIcon());boolean gitOpen=JiraSettings.gitInfo(project)&&issue.key().equals(developmentKey);if(!JiraSettings.gitInfo(project))developmentKey=null;gitInfo.setVisible(JiraSettings.gitInfo(project));gitInfo.setText(gitOpen?"Info Git ×":"Info Git");iconButton(gitInfo,"Info Git");status.add(gitInfo);gitInfo.addActionListener(e->{if(issue.key().equals(developmentKey)){developmentKey=null;hideDevelopment();gitInfo.setText("Info Git");}else{openDevelopment(issue);gitInfo.setText("Info Git ×");}iconButton(gitInfo,"Info Git");});if(gitOpen)openDevelopment(issue);header.add(status);JPanel actions=new JPanel();actions.setLayout(new BoxLayout(actions,BoxLayout.X_AXIS));JButton copyTask=new JButton(AllIcons.Actions.Copy),chatTask=new JButton(AiChatBridge.icon());iconButton(copyTask,I18n.t("Скопировать задачу целиком"));iconButton(chatTask,I18n.t("Новый чат ChatGPT / Codex с задачей"));aiButton=chatTask;chatTask.setVisible(AiChatBridge.available(project));copyTask.addActionListener(e->{CopyPasteManager.getInstance().setContents(new StringSelection(TaskExport.text(host,issue)));message.setText(I18n.t("Задача скопирована: описание, ссылки на медиа и комментарии с временем."));});chatTask.addActionListener(e->exportToChat(issue,chatTask));actions.add(copyTask);actions.add(chatTask);actions.add(refreshIssue);header.add(actions,BorderLayout.EAST);block(header);
       JTextArea title=text(issue.summary(),20);title.setFont(title.getFont().deriveFont(Font.BOLD));block(title);
       JPanel assigneeRow=new JPanel();assigneeRow.setLayout(new BoxLayout(assigneeRow,BoxLayout.X_AXIS));assigneeRow.add(label(I18n.t("Исполнитель: ")));JButton assignee=new JButton(issue.assignee().isBlank()?I18n.t("Не назначен"):issue.assignee(),AllIcons.General.ArrowDown);assignee.setHorizontalTextPosition(SwingConstants.LEFT);iconButton(assignee,I18n.t("Изменить исполнителя"));assignee.addActionListener(e->chooseAssignee(issue,assignee));assigneeRow.add(assignee);
       if(api!=null&&api.self!=null&&!api.self.name().isBlank()&&!api.self.name().equals(issue.assigneeName())){JButton me=new JButton(new AssignMeIcon());iconButton(me,I18n.t("Назначить на меня"));me.addActionListener(e->assignUser(issue,api.self));assigneeRow.add(me);}assigneeRow.add(label(I18n.t("   ·   Приоритет: ")+issue.priority()));block(assigneeRow);block(label(I18n.t("Автор: ")+issue.reporter()));details.add(Box.createVerticalStrut(14));
       JPanel descriptionHeader=new JPanel(new BorderLayout());JLabel desc=label(I18n.t("Описание"));desc.setFont(desc.getFont().deriveFont(Font.BOLD));descriptionHeader.add(desc);
       JButton copy=new JButton(AllIcons.Actions.Copy);iconButton(copy,I18n.t("Копировать описание"));copy.getAccessibleContext().setAccessibleName(I18n.t("Копировать описание"));copy.addActionListener(e->{CopyPasteManager.getInstance().setContents(new StringSelection(issue.description()));message.setText(I18n.t("Описание скопировано"));});descriptionHeader.add(copy,BorderLayout.EAST);block(descriptionHeader);
-      details.add(JiraDescription.create(issue.description().isBlank()?I18n.t("Описание отсутствует"):issue.description()));details.add(Box.createVerticalStrut(16));
+      details.add(JiraDescription.create(issue.description().isBlank()?I18n.t("Описание отсутствует"):issue.description(),issue.media(),this::openMedia));details.add(Box.createVerticalStrut(16));
       JButton mediaToggle=new JButton(I18n.t("▸ Медиа · ")+issue.media().size());mediaToggle.setHorizontalAlignment(SwingConstants.LEFT);block(mediaToggle);
       JPanel strip=new JPanel();strip.setLayout(new BoxLayout(strip,BoxLayout.X_AXIS));
       JBScrollPane mediaScroll=new JBScrollPane(strip,ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER,ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);mediaScroll.setPreferredSize(new Dimension(400,245));mediaScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE,245));mediaScroll.setAlignmentX(Component.LEFT_ALIGNMENT);mediaScroll.setVisible(false);details.add(mediaScroll);
@@ -203,10 +287,19 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
       toggle.addActionListener(e->{boolean visible=!chat.isVisible();if(visible&&renderedComments[0]==0)appendComments.run();chat.setVisible(visible);toggle.setText((visible?"▾":"▸")+I18n.t(" Комментарии · ")+issue.comments().size());details.revalidate();details.repaint();});details.add(chat);
       details.add(Box.createVerticalGlue());details.revalidate();details.repaint();
     }
+    JTextPane mediaText(String source){return JiraDescription.create(source,shown==null?List.of():shown.media(),this::openMedia);}
+    void openMedia(Media media){
+      JiraApi client=api;if(client==null)return;message.setText(I18n.t("Загрузка…"));
+      cardBackground(()->client.mediaImage(media.url()),image->{
+        JLabel full=new JLabel(new ImageIcon(image));JBScrollPane scroll=new JBScrollPane(full);
+        scroll.setPreferredSize(new Dimension(Math.min(1000,image.getWidth()+30),Math.min(700,image.getHeight()+30)));
+        message.setText("");new DialogWrapper(project){{setTitle(media.name());init();setOKButtonText(I18n.t("Закрыть"));}protected JComponent createCenterPanel(){return scroll;}protected Action[] createActions(){return new Action[]{getOKAction()};}}.show();
+      },failure->message.setText(error(failure)));
+    }
     final class Composer extends JPanel {
       final String key;final MentionField input=new MentionField();final JPanel filesRow=new JPanel(new FlowLayout(FlowLayout.LEFT,6,2));final List<java.io.File> files=new ArrayList<>();
       final JBScrollPane filesScroll=new JBScrollPane(filesRow,ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER,ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-      final JButton attach=new JButton(new ComposeIcon(false)),send=new JButton(new ComposeIcon(true));boolean sending=false,uncertain=false;Future<?> mentionSearch;
+      final JButton attach=new JButton(new ComposeIcon(false)),send=new JButton(new ComposeIcon(true));boolean sending=false,uncertain=false;final List<String> pendingImages=new ArrayList<>();Future<?> mentionSearch;
       Composer(String key){super(new BorderLayout(6,6));this.key=key;setAlignmentX(Component.LEFT_ALIGNMENT);setMinimumSize(new Dimension(0,50));setBorder(BorderFactory.createEmptyBorder(10,0,12,0));
         input.search=(query,success,failure)->{JiraApi client=api;if(client==null)return;if(mentionSearch!=null)mentionSearch.cancel(true);worker.purge();mentionSearch=background(()->client.mentionUsers(query),users->{if(api==client)success.accept(users);},failure);};
         input.setToolTipText(I18n.t("Напишите комментарий или перетащите файлы сюда"));input.getAccessibleContext().setAccessibleName(I18n.t("Новый комментарий"));
@@ -223,13 +316,30 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
         };chip.setOpaque(false);chip.setBorder(BorderFactory.createEmptyBorder(3,9,3,4));JLabel name=label(file.getName());name.setMinimumSize(new Dimension(0,20));name.setToolTipText(file.getName());chip.add(name,BorderLayout.CENTER);JButton preview=new JButton(AllIcons.Actions.Preview),remove=new JButton(AllIcons.Actions.Close);iconButton(preview,I18n.t("Просмотреть ")+file.getName());iconButton(remove,I18n.t("Убрать ")+file.getName());
         JPanel actions=new JPanel();actions.setOpaque(false);actions.setLayout(new BoxLayout(actions,BoxLayout.X_AXIS));for(JButton button:List.of(preview,remove)){button.setBorder(BorderFactory.createEmptyBorder());button.setMargin(new Insets(0,0,0,0));button.setPreferredSize(new Dimension(24,24));button.setMinimumSize(new Dimension(24,24));button.setMaximumSize(new Dimension(24,24));actions.add(button);}
         preview.addActionListener(e->{var virtualFile=LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file);if(virtualFile==null){message.setText(I18n.t("Файл не найден: ")+file.getName());return;}FileEditorManager.getInstance(project).openFile(virtualFile,true);});remove.setEnabled(!sending);remove.addActionListener(e->{files.remove(file);renderFiles();});chip.add(actions,BorderLayout.EAST);chip.setPreferredSize(new Dimension(Math.min(220,chip.getPreferredSize().width),34));chip.setMaximumSize(new Dimension(220,34));filesRow.add(chip);}filesScroll.setVisible(!files.isEmpty());filesRow.revalidate();filesRow.repaint();revalidate();details.revalidate();details.repaint();}
-      void submit(){if(sending||mutating||api==null)return;if(uncertain){message.setText(I18n.t("Результат предыдущей отправки неизвестен. Проверьте Jira; черновик сохранён, автоповтора нет."));return;}String body=input.jiraText().trim();if(body.isEmpty()&&files.isEmpty())return;
+      void submit(){if(sending||mutating||api==null)return;if(uncertain){message.setText(I18n.t("Результат предыдущей отправки неизвестен. Проверьте Jira; черновик сохранён, автоповтора нет."));return;}String body=input.jiraText().trim();if(body.isEmpty()&&files.isEmpty()&&pendingImages.isEmpty())return;
         sending=true;input.setEditable(false);attach.setEnabled(false);send.setEnabled(false);lock(true);stop.setVisible(false);renderFiles();List<java.io.File> batch=List.copyOf(files),uploaded=new ArrayList<>();JiraApi client=api;message.setText(I18n.t("Отправка комментария и файлов…"));
-        background(()->{for(var file:batch){client.upload(key,file.toPath());uploaded.add(file);}if(!body.isEmpty())client.comment(key,body);return true;},ok->{files.clear();input.setText("");finish();loadDetails(key);message.setText(I18n.t("Отправлено. Обновляем комментарии…"));},failure->{files.removeAll(uploaded);uncertain=!(failure instanceof ApiException);finish();message.setText(error(failure)+I18n.t("\nЗагружено файлов: ")+uploaded.size()+I18n.t(". Неотправленный текст и файлы сохранены."));});
+        background(()->{for(var file:batch){String image=client.upload(key,file.toPath());uploaded.add(file);if(image!=null)pendingImages.add(image);}String complete=ImageAttachments.comment(body,pendingImages);if(!complete.isEmpty())client.comment(key,complete);return true;},ok->{files.clear();pendingImages.clear();input.setText("");finish();loadDetails(key);message.setText(I18n.t("Отправлено. Обновляем комментарии…"));},failure->{files.removeAll(uploaded);uncertain=!(failure instanceof ApiException);finish();message.setText(error(failure)+I18n.t("\nЗагружено файлов: ")+uploaded.size()+I18n.t(". Неотправленный текст и файлы сохранены."));});
       }
       void finish(){sending=false;input.setEditable(true);attach.setEnabled(true);send.setEnabled(!uncertain);lock(false);renderFiles();}
     }
     void exportToChat(IssueDetails issue,JButton button){if(api==null)return;if(!AiChatBridge.available(project)){button.setVisible(false);return;}JiraApi client=api;String text=TaskExport.text(host,issue);CopyPasteManager.getInstance().setContents(new StringSelection(text));button.setEnabled(false);message.setText(I18n.t("Готовим задачу и изображения для нового чата…"));background(()->{List<java.io.File> files=new ArrayList<>();if(!issue.media().isEmpty()){java.nio.file.Path root=java.nio.file.Path.of(com.intellij.openapi.application.PathManager.getSystemPath(),"corp-jira-export");java.nio.file.Files.createDirectories(root);java.nio.file.Path dir=java.nio.file.Files.createTempDirectory(root,issue.key()+"-");int n=0;for(Media media:issue.media())files.add(client.exportMedia(media,dir,++n).toFile());}return files;},files->{button.setEnabled(true);AiChatBridge.open(project,text,files,()->!disposed&&api==client,msg->{if(!disposed)message.setText(msg);});},failure->{button.setEnabled(true);message.setText(I18n.t("Не удалось подготовить медиа: ")+error(failure)+I18n.t(". Текст задачи скопирован; новый чат не создан."));});}
+    void loadSeverity(IssueDetails issue,JButton button){
+      JiraApi client=api;if(client==null)return;
+      cardBackground(()->Severity.load(client,issue.key()),data->{
+        if(data==null){button.setVisible(false);return;}
+        button.setText(data.current().name());button.setForeground(Severity.color(data.current()));
+        button.setIcon(data.options().isEmpty()?null:AllIcons.General.ArrowDown);button.setHorizontalTextPosition(SwingConstants.LEFT);button.setIconTextGap(6);
+        iconButton(button,data.options().isEmpty()?I18n.t("Severity — только просмотр"):I18n.t("Изменить Severity"));button.setEnabled(!data.options().isEmpty());
+        button.addActionListener(e->{if(mutating||api!=client||shown==null||!shown.key().equals(issue.key()))return;
+          var popup=JBPopupFactory.getInstance().createPopupChooserBuilder(data.options()).setTitle(I18n.t("Выбрать Severity")).setNamerForFiltering(Severity.Level::name)
+            .setRenderer((ListCellRenderer<Severity.Level>)(items,value,index,selected,focus)->{JLabel label=label(value.name());label.setBorder(BorderFactory.createEmptyBorder(7,10,7,10));label.setOpaque(true);label.setBackground(selected?items.getSelectionBackground():items.getBackground());label.setForeground(Severity.color(value));return label;})
+            .setItemChosenCallback(value->{if(mutating||api!=client||shown==null||!shown.key().equals(issue.key())||value.id().equals(data.current().id()))return;
+              lock(true);stop.setVisible(false);button.setEnabled(false);
+              background(()->{Severity.save(client,issue.key(),data,value);return true;},ok->{lock(false);loadDetails(issue.key());},failure->{lock(false);button.setEnabled(true);message.setText(error(failure));});
+            }).createPopup();trackPopup(popup);popup.showUnderneathOf(button);
+        });details.revalidate();details.repaint();
+      },failure->{button.setText("Severity ⚠");iconButton(button,error(failure));details.revalidate();});
+    }
     void chooseAssignee(IssueDetails issue,JButton anchor){
       if(mutating||api==null)return;JiraApi client=api;JPanel menu=new JPanel(new BorderLayout(0,6));menu.setBorder(BorderFactory.createEmptyBorder(8,8,8,8));menu.setPreferredSize(new Dimension(380,320));JTextField query=new JTextField();query.setToolTipText(I18n.t("Поиск исполнителя по имени или логину"));DefaultListModel<User> users=new DefaultListModel<>();JBList<User> options=new JBList<>(users);options.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);JLabel state=label(I18n.t("Загрузка…"));menu.add(query,BorderLayout.NORTH);menu.add(new JBScrollPane(options));menu.add(state,BorderLayout.SOUTH);
       var popup=JBPopupFactory.getInstance().createComponentPopupBuilder(menu,query).setTitle(I18n.t("Исполнитель")).setFocusable(true).setRequestFocus(true).setCancelOnClickOutside(true).createPopup();int[] generation={0};Future<?>[] lookup={null};
@@ -254,7 +364,7 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
         }) .createPopup();trackPopup(statusPopup);statusPopup.showUnderneathOf(change);
       },e->{change.setEnabled(true);message.setText(error(e));});
     }
-    void lock(boolean value){if(value&&quickJql!=null)quickJql.hide();storeJql.setEnabled(!value);editFilter.setEnabled(!value);mine.setEnabled(!value);active.setEnabled(!value);mutating=value;list.setEnabled(!value);search.setEnabled(!value);refresh.setEnabled(!value);openIssue.setEnabled(!value);account.setEnabled(!value);change.setEnabled(!value&&shown!=null);refreshIssue.setEnabled(!value&&shown!=null);stop.setVisible(value);}
+    void lock(boolean value){if(value&&quickJql!=null)quickJql.hide();storeJql.setEnabled(!value);editFilter.setEnabled(!value);severityFilter.setEnabled(!value);mine.setEnabled(!value);active.setEnabled(!value);mutating=value;list.setEnabled(!value);search.setEnabled(!value);refresh.setEnabled(!value);openIssue.setEnabled(!value);account.setEnabled(!value);change.setEnabled(!value&&shown!=null);refreshIssue.setEnabled(!value&&shown!=null);stop.setVisible(value);}
     void runStatus(JiraApi client,String key,Status initial,StatusFlow.Choice choice,String fill){
       lock(true);cancelled.set(false);message.setText(I18n.t("Назначаем ")+choice.status().name()+"…");
       background(()->{StatusFlow.execute(StatusFlow.gateway(client,key),initial,choice,()->cancelled.get()||disposed,msg->SwingUtilities.invokeLater(()->{if(!disposed)message.setText(msg);}),fill);return client.details(key);},result->{lock(false);shown=result;showDetails(result);loadList();message.setText(I18n.t("Готово: ")+key+" → "+result.status().name()+I18n.t(". Карточка обновлена."));},e->{lock(false);message.setText(error(e)+I18n.t("\nПроверяем текущий статус…"));String failure=error(e);background(()->client.details(key),result->{shown=result;showDetails(result);message.setText(failure+I18n.t("\nТекущий статус: ")+result.status().name()+I18n.t(". Автоматического отката нет."));},readError->message.setText(failure+I18n.t("\nНе удалось проверить текущий статус. Обновите карточку.")));});
@@ -307,7 +417,7 @@ public final class JiraToolWindowFactory implements ToolWindowFactory,DumbAware 
     static String preview(String text){int end=Math.min(text.length(),700),lines=0;for(int i=0;i<end;i++)if(text.charAt(i)=='\n'&&++lines==8){end=i;break;}if(end<text.length()&&end>0&&Character.isHighSurrogate(text.charAt(end-1)))end--;return end<text.length()?text.substring(0,end).stripTrailing()+"…":text;}
     CommentBubble(Comment comment,Panel owner){super(new BorderLayout(0,5));fullText=comment.body();setOpaque(false);setBorder(BorderFactory.createEmptyBorder(12,14,10,14));setAlignmentX(Component.LEFT_ALIGNMENT);
       JLabel author=label(comment.author());author.setFont(author.getFont().deriveFont(Font.BOLD));author.setForeground(new JBColor(new Color(0x0747A6),new Color(0x85B8FF)));add(author,BorderLayout.NORTH);
-      body=CommentLinks.text(preview(fullText));body.setMinimumSize(new Dimension(0,0));content.setOpaque(false);content.add(body);JPanel links=new JPanel();links.setOpaque(false);links.setLayout(new BoxLayout(links,BoxLayout.Y_AXIS));content.add(links,BorderLayout.SOUTH);add(content);expand.setText(I18n.t("Раскрыть больше"));iconButton(expand,I18n.t("Раскрыть больше"));expand.setAlignmentX(Component.LEFT_ALIGNMENT);expand.setVisible(!preview(fullText).equals(fullText));links.add(expand);expand.addActionListener(e->{expanded=!expanded;content.remove(body);body=CommentLinks.text(expanded?fullText:preview(fullText));body.setMinimumSize(new Dimension(0,0));content.add(body,BorderLayout.CENTER);expand.setText(expanded?I18n.t("Свернуть"):I18n.t("Раскрыть больше"));iconButton(expand,expand.getText());revalidate();if(owner!=null)owner.details.revalidate();repaint();});String gitHost=owner==null?"":owner.gitHost;for(String url:CommentLinks.urls(comment.body()))if(CommentLinks.commit(url,gitHost)!=null)owner.cardBackground(()->CommentLinks.find(owner.project,url,gitHost),commit->{if(commit!=null){JButton jump=new JButton("Git Log ↗ "+commit.hash().asString().substring(0,8));iconButton(jump,I18n.t("Открыть коммит в Git Log"));jump.addActionListener(e->CommentLinks.open(owner.project,commit));links.add(jump);owner.details.revalidate();owner.details.repaint();}},ignored->{});JLabel time=label(date(comment.date()));time.setFont(time.getFont().deriveFont(11f));time.setForeground(new JBColor(new Color(0x526B8D),new Color(0xA7BBD5)));time.setHorizontalAlignment(SwingConstants.RIGHT);add(time,BorderLayout.SOUTH);
+      body=owner==null?JiraDescription.create(preview(fullText)):owner.mediaText(preview(fullText));body.setMinimumSize(new Dimension(0,0));content.setOpaque(false);content.add(body);JPanel links=new JPanel();links.setOpaque(false);links.setLayout(new BoxLayout(links,BoxLayout.Y_AXIS));content.add(links,BorderLayout.SOUTH);add(content);expand.setText(I18n.t("Раскрыть больше"));iconButton(expand,I18n.t("Раскрыть больше"));expand.setAlignmentX(Component.LEFT_ALIGNMENT);expand.setVisible(!preview(fullText).equals(fullText));links.add(expand);expand.addActionListener(e->{expanded=!expanded;content.remove(body);body=owner==null?JiraDescription.create(expanded?fullText:preview(fullText)):owner.mediaText(expanded?fullText:preview(fullText));body.setMinimumSize(new Dimension(0,0));content.add(body,BorderLayout.CENTER);expand.setText(expanded?I18n.t("Свернуть"):I18n.t("Раскрыть больше"));iconButton(expand,expand.getText());revalidate();if(owner!=null)owner.details.revalidate();repaint();});String gitHost=owner==null?"":owner.gitHost;for(String url:CommentLinks.urls(comment.body()))if(owner!=null&&JiraSettings.gitLogSync(owner.project)&&CommentLinks.commit(url,gitHost)!=null)owner.cardBackground(()->CommentLinks.find(owner.project,url,gitHost),commit->{if(commit!=null){JButton jump=new JButton("Git Log ↗ "+commit.hash().asString().substring(0,8));iconButton(jump,I18n.t("Открыть коммит в Git Log"));jump.addActionListener(e->CommentLinks.open(owner.project,commit));links.add(jump);owner.details.revalidate();owner.details.repaint();}},ignored->{});JLabel time=label(date(comment.date()));time.setFont(time.getFont().deriveFont(11f));time.setForeground(new JBColor(new Color(0x526B8D),new Color(0xA7BBD5)));time.setHorizontalAlignment(SwingConstants.RIGHT);add(time,BorderLayout.SOUTH);
     }
     @Override public Dimension getPreferredSize(){int width=getParent()!=null&&getParent().getWidth()>40?getParent().getWidth():500;int inner=Math.max(40,width-28);Insets insets=body.getInsets();var view=body.getUI().getRootView(body);view.setSize(Math.max(1,inner-insets.left-insets.right),Integer.MAX_VALUE);int height=(int)Math.ceil(view.getPreferredSpan(javax.swing.text.View.Y_AXIS))+insets.top+insets.bottom+2;body.setPreferredSize(new Dimension(inner,height));Dimension size=super.getPreferredSize();return new Dimension(width,size.height);}
     @Override public Dimension getMinimumSize(){return new Dimension(0,getPreferredSize().height);}
