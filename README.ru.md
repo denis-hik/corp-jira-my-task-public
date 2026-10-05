@@ -6,7 +6,7 @@
 
 ## Превью
 
-<a href="docs/images/CorpJiraPreview.png"><img src="docs/images/CorpJiraPreview.png" alt="Превью Corp Jira - My task" width="420"></a>
+<a href="docs/images/CorpJiraPreview.png"><img src="docs/images/CorpJiraPreview.png" alt="Превью Corp Jira - My task" width="100%"></a>
 
 ## Возможности
 
