@@ -100,11 +100,11 @@ public final class JiraApi implements AutoCloseable {
     return rows;
   }
   IssueDetails details(String key)throws Exception{
-    JsonObject issue=get(issuePath(key)+"?fields=summary,description,status,assignee,reporter,priority,updated,attachment");JsonObject fields=obj(issue,"fields");
+    JsonObject issue=get(issuePath(key)+"?fields=summary,description,status,assignee,reporter,priority,updated,attachment,issuetype,issuelinks,subtasks,parent");JsonObject fields=obj(issue,"fields");
     List<Comment> comments=new ArrayList<>();for(JsonElement el:paged(issuePath(key)+"/comment","comments")){JsonObject c=el.getAsJsonObject();comments.add(new Comment(str(obj(c,"author"),"displayName"),str(c,"created"),plain(c.get("body"))));}
     comments.sort(Comparator.comparing((Comment c)->commentTime(c.date())).reversed());
     List<Media> media=new ArrayList<>();for(JsonElement el:arr(fields,"attachment")){JsonObject a=el.getAsJsonObject();String mime=str(a,"mimeType");if(mime.startsWith("image/"))media.add(new Media(str(a,"filename"),str(a,"content"),str(a,"thumbnail")));}
-    return new IssueDetails(key,str(fields,"summary"),status(obj(fields,"status")),plain(fields.get("description")),str(obj(fields,"assignee"),"displayName"),str(obj(fields,"reporter"),"displayName"),str(obj(fields,"priority"),"name"),comments,media,str(obj(fields,"assignee"),"name"));
+    return new IssueDetails(key,str(fields,"summary"),status(obj(fields,"status")),plain(fields.get("description")),str(obj(fields,"assignee"),"displayName"),str(obj(fields,"reporter"),"displayName"),str(obj(fields,"priority"),"name"),comments,media,str(obj(fields,"assignee"),"name"),str(obj(fields,"issuetype"),"name"),linkedIssues(fields));
   }
   Status current(String key)throws Exception{return status(obj(obj(get(issuePath(key)+"?fields=status"),"fields"),"status"));}
   List<Status> statuses()throws Exception{List<Status> rows=new ArrayList<>();for(JsonElement e:request("GET","/status",null).getAsJsonArray())rows.add(status(e.getAsJsonObject()));return rows;}
@@ -158,6 +158,22 @@ public final class JiraApi implements AutoCloseable {
   static java.time.Instant commentTime(String date){try{return java.time.OffsetDateTime.parse(date.replaceFirst("([+-][0-9]{2})([0-9]{2})$", "$1:$2")).toInstant();}catch(java.time.format.DateTimeParseException e){return java.time.Instant.MIN;}}
   record Comment(String author,String date,String body){}
   record Media(String name,String url,String thumbnail){}
-  record IssueDetails(String key,String summary,Status status,String description,String assignee,String reporter,String priority,List<Comment> comments,List<Media> media,String assigneeName){}
+  record LinkedIssue(String key,String summary,String type,String status,String relation){}
+  static List<LinkedIssue> linkedIssues(JsonObject fields){
+    Map<String,LinkedIssue> result=new LinkedHashMap<>();
+    for(JsonElement element:arr(fields,"issuelinks")){
+      if(!element.isJsonObject())continue;JsonObject link=element.getAsJsonObject(),type=obj(link,"type");
+      addLinked(result,obj(link,"outwardIssue"),str(type,"outward"));
+      addLinked(result,obj(link,"inwardIssue"),str(type,"inward"));
+    }
+    addLinked(result,obj(fields,"parent"),I18n.t("Родительская задача"));
+    for(JsonElement child:arr(fields,"subtasks"))if(child.isJsonObject())addLinked(result,child.getAsJsonObject(),I18n.t("Подзадача"));
+    return List.copyOf(result.values());
+  }
+  static void addLinked(Map<String,LinkedIssue> result,JsonObject issue,String relation){
+    String key=str(issue,"key");if(!key.matches("[A-Za-z][A-Za-z0-9_]*-[0-9]+"))return;
+    JsonObject fields=obj(issue,"fields");result.putIfAbsent(key+"\n"+relation,new LinkedIssue(key,str(fields,"summary"),str(obj(fields,"issuetype"),"name"),str(obj(fields,"status"),"name"),relation));
+  }
+  record IssueDetails(String key,String summary,Status status,String description,String assignee,String reporter,String priority,List<Comment> comments,List<Media> media,String assigneeName,String issueType,List<LinkedIssue> linkedIssues){}
   record Transition(String id,String name,Status to,JsonObject fields){}
 }

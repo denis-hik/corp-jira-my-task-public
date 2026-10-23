@@ -312,5 +312,20 @@
   "Необязательно. Пустое поле отключает поиск по ссылкам в комментариях.": "Optional. Leave empty to disable commit lookup in comments.",
   "Обновление задачи": "Issue refresh",
   "Обновлять после операций Git": "Refresh after Git operations",
-  "Перечитывает открытую задачу после push, pull и обновления проекта.": "Reloads the open issue after push, pull and project updates."
+  "Перечитывает открытую задачу после push, pull и обновления проекта.": "Reloads the open issue after push, pull and project updates.",
+  "Получаем коммиты, ветки и pull requests из Jira.": "Fetching commits, branches and pull requests from Jira.",
+  "Не удалось загрузить Git Info": "Could not load Git Info",
+  "Часть данных недоступна": "Some data is unavailable",
+  "Проверьте подключение к Jira и повторите загрузку.": "Check your Jira connection and try again.",
+  "Нет связанных данных Git": "No linked Git data",
+  "В текущем проекте нет Git remotes. Подключите репозиторий или отключите фильтр в настройках Git.": "This project has no Git remotes. Add a repository or turn off the filter in Git settings.",
+  "Для репозиториев текущего проекта ничего не найдено. Другие репозитории скрыты фильтром в настройках Git.": "No matches for this project’s repositories. Other repositories are hidden by the filter in Git settings.",
+  "Jira не вернула коммиты, ветки или pull requests для этой задачи.": "Jira returned no commits, branches or pull requests for this issue.",
+  "Повторить": "Retry",
+  "Подробности": "Details",
+  "Тип задачи: ": "Issue type: ",
+  "Связанные задачи": "Linked issues",
+  "Нет связанных задач": "No linked issues",
+  "Родительская задача": "Parent issue",
+  "Подзадача": "Subtask"
 }
